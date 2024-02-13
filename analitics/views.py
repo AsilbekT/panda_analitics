@@ -2,16 +2,27 @@ from rest_framework import status
 from django.conf import settings
 from analitics.pagination import StandardResultsSetPagination
 from analitics.utils import standard_response
-from .serializers import BannerClickSerializer, BannerImpressionSerializer, StreamingQualityDataSerializer, UserSessionDataSerializer, UserWatchDataSerializer, UserActivitySerializer, ReviewSerializer
+from .serializers import BannerClickSerializer, BannerImpressionSerializer, StreamingQualityDataSerializer, UserSessionDataSerializer, UserWatchDataSerializer, UserActivitySerializer, ReviewSerializer, UserSerializer
 from .tasks import process_streaming_quality_data, process_user_session_data, save_banner_click, save_banner_impression, save_watch_data, add_user_activity, add_review
 from django.db.models import Avg, Sum, Count, F, Case, When, FloatField
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from .models import ActivityType, BannerClick, BannerImpression, ContentRevenue, Review, UserActivity, UserSessionData, UserWatchData
+from .models import ActivityType, BannerClick, BannerImpression, ContentRevenue, Review, UserActivity, UserSessionData, UserWatchData, ContentLikeUnlikeCount
 import requests
 from rest_framework.views import APIView
 from django.db.models.functions import ExtractHour
+from .serializers import LikeUnlikeSerializer
+from django.contrib.auth import authenticate
+from rest_framework.authtoken.models import Token
+from .permissions import IsAuthenticatedForGetOnly
+from .models import Content
+from .serializers import ContentSerializer
+from rest_framework import viewsets
+import logging
+from rest_framework.authentication import TokenAuthentication
 
+# Set up logging
+logger = logging.getLogger(__name__)
 
 class UserWatchDataView(APIView):
     def post(self, request):
@@ -23,20 +34,41 @@ class UserWatchDataView(APIView):
             user_id = valid_data.get('user_id', None)
             content_id = valid_data.get('content_id', None)
             watch_duration = valid_data.get('watch_duration', None)
+            content_type = valid_data.get('content_type', None)
+            print(content_type)
             # Call the Celery task with the correct data
             save_watch_data.delay(
-                user_id=user_id, content_id=content_id, watch_duration=watch_duration)
+                user_id=user_id, content_id=content_id, watch_duration=watch_duration, content_type=content_type)
             return standard_response(True, 'User watch data is being processed')
         return standard_response(False, 'Invalid data', serializer.errors, status.HTTP_400_BAD_REQUEST)
+
+
 
 
 class UserActivityView(APIView):
     def post(self, request):
         serializer = UserActivitySerializer(data=request.data)
         if serializer.is_valid():
-            add_user_activity.delay(**serializer.validated_data)
+            # It looks like you forgot to assign serializer.validated_data to valid_data
+            valid_data = serializer.validated_data
+            print(valid_data)
+            user_id = valid_data.get('user_id', None)
+            content_id = valid_data.get('content_id', None)
+            playback_position = valid_data.get('playback_position', None)
+            content_type = valid_data.get('content_type', None)
+
+            # Assuming add_user_activity is a Celery task
+            add_user_activity.delay(**valid_data)
+
             return standard_response(True, 'User activity is being processed')
-        return standard_response(False, 'Invalid data', serializer.errors, status.HTTP_400_BAD_REQUEST)
+        else:
+            # Log the serializer errors
+            logger.error(f"Serializer Errors: {serializer.errors}")
+
+            # Convert OrderedDict to a standard dict for better readability
+            error_dict = dict(serializer.errors)
+
+            return standard_response(False, 'Invalid data', error_dict, status.HTTP_400_BAD_REQUEST)
 
 
 class ReviewView(APIView):
@@ -67,6 +99,10 @@ class AverageSessionLengthView(APIView):
 
 
 class PeakViewingTimesView(APIView):
+    authentication_classes = [TokenAuthentication]
+
+    permission_classes = [IsAuthenticatedForGetOnly]
+
     def get(self, request):
         peak_times = UserWatchData.objects.annotate(
             hour=ExtractHour('timestamp')
@@ -78,6 +114,7 @@ class PeakViewingTimesView(APIView):
 
 
 class TotalWatchDurationView(APIView):
+
     def get(self, request, content_id):
         total_duration = UserWatchData.objects.filter(content_id=content_id).aggregate(
             total_watch_duration=Sum('watch_duration'),
@@ -105,6 +142,7 @@ class UserTotalWatchStatisticsView(APIView):
 
 
 class ContentWatchCountView(APIView):
+    
     def get(self, request, content_id):
         watch_counts = UserWatchData.objects.filter(
             content_id=content_id,
@@ -114,16 +152,19 @@ class ContentWatchCountView(APIView):
 
 
 class LastWatchedPositionView(APIView):
-    def get(self, request, user_id, content_id):
+    def get(self, request, user_id, content_id, content_type):
+
         last_activity = UserActivity.objects.filter(
             user_id=user_id,
             content_id=content_id,
+            content_type=content_type,
             activity_type=ActivityType.WATCHED
         ).order_by('-timestamp').first()
         if last_activity:
             response_data = {
                 'last_watched': last_activity.timestamp,
                 'activity_type': last_activity.activity_type,
+                'content_type':content_type,
                 'playback_position': last_activity.playback_position
             }
             return standard_response(True, 'Last watched position retrieved', response_data)
@@ -163,6 +204,9 @@ class UserSessionHistoryView(APIView):
 
 
 class FetchTotalRevenueView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticatedForGetOnly]
+
     """
     Billing service
     Response:
@@ -187,6 +231,9 @@ class FetchTotalRevenueView(APIView):
 
 
 class FetchRevenueByPlanView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticatedForGetOnly]
+
     """
     Billing service
     Response:
@@ -215,6 +262,9 @@ class FetchRevenueByPlanView(APIView):
 
 
 class FetchARPUView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticatedForGetOnly]
+
     """
     Billing service
     Response:
@@ -248,6 +298,9 @@ class FetchARPUView(APIView):
 
 
 class FetchTransactionRatesView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticatedForGetOnly]
+
     """
     Billing service
     Response:
@@ -276,6 +329,10 @@ class FetchTransactionRatesView(APIView):
 
 
 class UserStatisticsView(APIView):
+    authentication_classes = [TokenAuthentication]
+    permission_classes = [IsAuthenticatedForGetOnly]
+
+
     """
     Fetches user-related statistics from the user service.
     """
@@ -375,49 +432,223 @@ class BannerView(APIView):
 
 class UserWatchHistoryView(APIView):
     def get(self, request, user_id):
-        watch_history = UserWatchData.objects.filter(
-            user_id=user_id).order_by('-timestamp')
-
+        watch_history = UserWatchData.objects.filter(user_id=user_id).order_by('-timestamp')
+        # user_activity = UserActivity.objects.filter(user_id=user_id).order_by('-timestamp')
         # Instantiate your pagination class
         paginator = StandardResultsSetPagination()
 
         # Get the paginated queryset
         page = paginator.paginate_queryset(watch_history, request)
 
-        if page is not None:
-            serializer = UserWatchDataSerializer(page, many=True)
-            return paginator.get_paginated_response(serializer.data)
+        def generate_content_url(content, series_id=None):
+            base_url = "https://gateway.pandatv.uz/catalogservice"
+            if content.content_type.lower() == 'movie':
+                return f"{base_url}/movies/{content.content_id}/"
+            elif content.content_type.lower() == 'episode':
+                return f"{base_url}/series/{series_id}/"
+            else:
+                return None
 
-        # Fallback for non-paginated response
-        serializer = UserWatchDataSerializer(watch_history, many=True)
-        return Response(serializer.data)
+        def process_watch_data(watch_data):
+            # Fetch content details only for the corresponding content_id and content_type
+            contents_query = Content.objects.filter(
+                content_id=watch_data.content_id, 
+                content_type=watch_data.content_type
+            )
+
+
+            if not contents_query.exists():
+                # If content does not exist, skip this watch data
+                return None
+
+            content = contents_query.first()
+            content_data = ContentSerializer(content).data
+            watch_data_data = UserWatchDataSerializer(watch_data).data
+            watch_data_data['content_details'] = content_data
+
+            if content_data:
+                if 'genre' in content_data:
+                    content_data['genre'] = content_data['genre'].split(',')
+
+                last_activity = UserActivity.objects.filter(
+                    user_id=user_id,
+                    content_id=watch_data.content_id,
+                    content_type=watch_data.content_type,
+                    activity_type=ActivityType.WATCHED
+                ).order_by('-timestamp').first()
+
+                last_watched_position = last_activity.playback_position if last_activity else None
+                watch_data_data['last_watched_position'] = last_watched_position
+
+                if content_data.get('series_id') != 0:
+                    watch_data_data['content_url'] = generate_content_url(watch_data, content_data['series_id'])
+                else:
+                    watch_data_data['content_url'] = generate_content_url(watch_data)
+
+                return watch_data_data
+
+        def filter_none_values(data_list):
+            return [data for data in data_list if data is not None]
+
+        if page is not None:
+            combined_data = filter_none_values([process_watch_data(watch_data) for watch_data in page])
+            return paginator.get_paginated_response(combined_data)
+
+        combined_data = filter_none_values([process_watch_data(watch_data) for watch_data in watch_history])
+        return Response(combined_data)
 
 
 class LikeUnlikeContentView(APIView):
     def post(self, request):
-        serializer = UserActivitySerializer(data=request.data)
+        serializer = LikeUnlikeSerializer(data=request.data)
         if serializer.is_valid():
             user_id = serializer.validated_data['user_id']
             content_id = serializer.validated_data['content_id']
             content_type = serializer.validated_data['content_type']
-            like = serializer.validated_data['like']  # Boolean
+            like = serializer.validated_data.get('like')
 
-            activity_type = ActivityType.LIKED if like else ActivityType.UNLIKED
-            UserActivity.objects.update_or_create(
-                user_id=user_id,
-                content_id=content_id,
-                content_type=content_type,
-                defaults={'activity_type': activity_type}
-            )
-            return standard_response(True, 'User activity updated')
-        return standard_response(False, 'Invalid data', serializer.errors)
+            if like is None:  # Undo action
+                self._undo_like_unlike(user_id, content_id, content_type)
+                return standard_response(True, 'Like/Unlike action undone')
+            else:
+                self._process_like_unlike(user_id, content_id, content_type, like)
+                return standard_response(True, 'User activity updated')
+
+        return Response(serializer.errors, status=400)
+        
+    def _undo_like_unlike(self, user_id, content_id, content_type):
+        # Remove the user's activity and update count
+        activity = UserActivity.objects.filter(
+            user_id=user_id, content_id=content_id, content_type=content_type
+        ).first()
+
+        if not activity:
+            return
+
+        content_like_unlike = ContentLikeUnlikeCount.objects.get(
+            content_id=content_id, content_type=content_type
+        )
+
+        # Update the like or unlike count based on previous activity
+        if activity.activity_type == ActivityType.LIKED:
+            content_like_unlike.like_count = F('like_count') - 1
+        elif activity.activity_type == ActivityType.UNLIKED:
+            content_like_unlike.unlike_count = F('unlike_count') - 1
+
+        content_like_unlike.save()
+        activity.delete()
+
+    def _process_like_unlike(self, user_id, content_id, content_type, like):
+        activity_type = ActivityType.LIKED if like else ActivityType.UNLIKED
+
+        # Update UserActivity
+        UserActivity.objects.update_or_create(
+            user_id=user_id,
+            content_id=content_id,
+            content_type=content_type,
+            defaults={
+                'activity_type': activity_type
+            }
+        )
+
+        # Update ContentLikeUnlikeCount
+        content_like_unlike, _ = ContentLikeUnlikeCount.objects.get_or_create(
+            content_id=content_id,
+            content_type=content_type
+        )
+        if like:
+            content_like_unlike.like_count = F('like_count') + 1
+        else:
+            content_like_unlike.unlike_count = F('unlike_count') + 1
+
+        content_like_unlike.save()
 
 
 class ContentLikesCountView(APIView):
+    
     def get(self, request, content_id, content_type):
-        likes_count = UserActivity.objects.filter(
-            content_id=content_id,
-            content_type=content_type,
-            activity_type=ActivityType.LIKED
-        ).count()
-        return standard_response(True, 'Likes count retrieved', {'likes_count': likes_count})
+        try:
+            like_unlike_count = ContentLikeUnlikeCount.objects.get(
+                content_id=content_id, 
+                content_type=content_type
+            )
+            data = {
+                'likes_count': like_unlike_count.like_count,
+                'unlikes_count': like_unlike_count.unlike_count
+            }
+            return standard_response(True, 'Likes and unlikes count retrieved', data)
+        except ContentLikeUnlikeCount.DoesNotExist:
+            # Handle the case where there is no record for the given content
+            return standard_response(False, 'Content not found', {})
+
+
+
+class ObtainAuthToken(APIView):
+    def post(self, request):
+        username = request.data.get('username')
+        password = request.data.get('password')
+        user = authenticate(username=username, password=password)
+        if user:
+            token, created = Token.objects.get_or_create(user=user)
+            user_data = UserSerializer(user).data
+            return Response({'token': token.key, 'user': user_data})
+        return Response({"error": "Invalid username or password"}, status=status.HTTP_401_UNAUTHORIZED)
+
+
+
+class ContentSyncView(APIView):
+    def post(self, request):
+        serializer = ContentSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def put(self, request, content_id):
+        print("here")
+        try:
+            content = AnalyticsContent.objects.get(id=content_id)
+        except AnalyticsContent.DoesNotExist:
+            return Response({'error': 'Content not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = ContentSerializer(content, data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class ContentDetail(APIView):
+    """
+    Retrieve, update or delete a content instance.
+    """
+    def get_object(self, pk):
+        try:
+            return Content.objects.get(content_id=pk)
+        except Content.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+    def get(self, request, pk):
+        content = self.get_object(pk)
+        if not content:
+            return Response({'error': 'Content not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ContentSerializer(content)
+        return Response(serializer.data)
+
+    def put(self, request, pk):
+        content = self.get_object(pk)
+        if not content:
+            return Response({'error': 'Content not found'}, status=status.HTTP_404_NOT_FOUND)
+        serializer = ContentSerializer(content, data=request.data)
+
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, pk):
+        content = self.get_object(pk)
+        if not content:
+            return Response({'error': 'Content not found'}, status=status.HTTP_404_NOT_FOUND)
+        content.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)

@@ -21,7 +21,10 @@ from .views import (
     FetchRevenueByPlanView,
     FetchARPUView,
     FetchTransactionRatesView,
-    UserWatchHistoryView
+    UserWatchHistoryView,
+    ObtainAuthToken,
+    ContentSyncView,
+    ContentDetail
 )
 
 urlpatterns = [
@@ -45,7 +48,7 @@ urlpatterns = [
          UserTotalWatchStatisticsView.as_view(), name='user_total_watch_statistics'),
     path('content-watch-count/<int:content_id>/',
          ContentWatchCountView.as_view(), name='content_watch_count'),
-    path('last-watched-position/<int:user_id>/<int:content_id>/',
+    path('last-watched-position/<int:user_id>/<int:content_id>/<str:content_type>/',
          LastWatchedPositionView.as_view(), name='last_watched_position'),
     path('user-watch-history/<int:user_id>/',
          UserWatchHistoryView.as_view(), name='user-watch-history'),
@@ -67,5 +70,7 @@ urlpatterns = [
     path('banners/', BannerView.as_view(), name='banners'),
     path('like-unlike-content/', LikeUnlikeContentView.as_view(),
          name='like-unlike-content'),
-
+     path('login/', ObtainAuthToken.as_view()),
+    path('contents/', ContentSyncView.as_view(), name='content-list'),
+    path('contents/<int:pk>/', ContentDetail.as_view(), name='content-detail'),
 ]

@@ -6,38 +6,49 @@ from django.db import models
 
 
 @shared_task
-def save_watch_data(user_id, content_id, watch_duration):
+def save_watch_data(user_id, content_id, watch_duration, content_type):
     threshold_for_full_watch = 3600
     fully_watched = watch_duration >= threshold_for_full_watch
 
     # Check if the object exists
+    print(content_type)
     obj, created = UserWatchData.objects.get_or_create(
         user_id=user_id,
         content_id=content_id,
         defaults={
             'watch_duration': watch_duration,
-            'fully_watched': fully_watched
+            'fully_watched': fully_watched,
+            'content_type': content_type,
         }
     )
 
-    # If the object already exists, update it
     if not created:
         obj.watch_duration = models.F('watch_duration') + watch_duration
         obj.fully_watched = fully_watched
+        obj.content_type = content_type  # Explicitly update content_type
         obj.save()
 
 
 @shared_task
-def add_user_activity(user_id, content_id, activity_type, watch_timestamp):
-    UserActivity.objects.update_or_create(
+def add_user_activity(user_id, content_id, activity_type, playback_position, content_type, watch_timestamp=None):
+
+    obj, created = UserActivity.objects.get_or_create(
         user_id=user_id,
         content_id=content_id,
         defaults={
             'activity_type': activity_type,
-            'timestamp': watch_timestamp
+            'playback_position': playback_position,
+            'content_type': content_type,
         }
     )
-
+    if not created:
+        if watch_timestamp is not None:
+            obj.watch_timestamp = watch_timestamp
+            
+        obj.playback_position = playback_position
+        obj.activity_type = activity_type
+        obj.content_type = content_type
+        obj.save()
 
 @shared_task
 def add_review(user_id, content_id, review_text, rating):

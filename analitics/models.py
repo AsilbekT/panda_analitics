@@ -1,5 +1,21 @@
 from django.db import models
 
+class Content(models.Model):
+    content_id = models.IntegerField(blank=True, null=True)
+    series_id = models.IntegerField(default=0)
+    title = models.CharField(max_length=255, blank=True, null=True)
+    slug = models.SlugField(unique=True, blank=True, null=True)
+    description = models.TextField(blank=True, null=True)
+    genre = models.CharField(max_length=255, blank=True, null=True)
+    release_date = models.DateField(blank=True, null=True)
+    duration_minute = models.IntegerField(blank=True, null=True)
+    thumbnail_image = models.CharField(max_length=255, blank=True, null=True)
+    widescreen_thumbnail_image = models.CharField(max_length=255, blank=True, null=True)
+    content_type = models.CharField(max_length=100, choices=[
+                                    ('movie', 'MOVIE'), ('series', 'SERIES'), ('episode', "EPISODE")], blank=True, null=True)
+                                    
+    def __str__(self):
+        return str(self.content_id)
 
 class ActivityType(models.TextChoices):
     WATCHED = 'watched', 'Watched'
@@ -18,7 +34,8 @@ class UserWatchData(models.Model):
     rewind_count = models.IntegerField(default=0)
     fast_forward_count = models.IntegerField(default=0)
     completed = models.BooleanField(default=False)
-
+    content_type = models.CharField(max_length=100, choices=[
+                                    ('movie', 'MOVIE'), ('series', 'SERIES'), ('episode', "EPISODE")], null=True, blank=True)
     def __str__(self):
         return f"User {self.user_id} Watch Data for Content {self.content_id}"
 
@@ -49,16 +66,34 @@ class UserActivity(models.Model):
         max_length=100, choices=ActivityType.choices)
     timestamp = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    device_type = models.CharField(max_length=100, blank=True, null=True)
-    location = models.CharField(max_length=100, blank=True, null=True)
+    # device_type = models.CharField(max_length=100, blank=True, null=True)
+    # location = models.CharField(max_length=100, blank=True, null=True)
     platform = models.CharField(max_length=100, blank=True, null=True)
     playback_position = models.IntegerField(
         help_text="Playback position in seconds", blank=True, null=True)
     content_type = models.CharField(max_length=100, choices=[
-                                    ('movie', 'MOVIE'), ('series', 'SERIES')])
+                                    ('movie', 'MOVIE'), ('series', 'SERIES'), ('episode', "EPISODE")])
 
     def __str__(self):
         return f"User {self.user_id} - {self.activity_type} - Content {self.content_id}"
+
+class ContentType(models.TextChoices):
+    MOVIE = 'movie', 'Movie'
+    SERIES = 'series', 'Series'
+
+
+class ContentLikeUnlikeCount(models.Model):
+    content_id = models.IntegerField(unique=True)
+    like_count = models.IntegerField(default=0)
+    unlike_count = models.IntegerField(default=0)
+    content_type = models.CharField(max_length=50, choices=ContentType.choices)
+
+    class Meta:
+        unique_together = ('content_id', 'content_type')
+        
+    def __str__(self):
+        return f"Content {self.content_id}: {self.like_count} Likes, {self.unlike_count} Unlikes"
+
 
 
 class UserAcquisitionData(models.Model):
@@ -114,3 +149,5 @@ class BannerImpression(models.Model):
 
     def __str__(self):
         return f"Impression on Banner {self.banner_id} by User {self.user_id}"
+
+

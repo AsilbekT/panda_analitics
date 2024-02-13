@@ -1,3 +1,5 @@
+
+
 """
 Django settings for analitics_service project.
 
@@ -9,6 +11,7 @@ https://docs.djangoproject.com/en/4.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/4.2/ref/settings/
 """
+import os
 
 from pathlib import Path
 
@@ -16,14 +19,35 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 # Celery Settings for RabbitMQ
-CELERY_BROKER_URL = 'amqp://localhost'
+CELERY_BROKER_URL = 'pyamqp://asilbek:Asilbek2001@localhost//'
+# settings.py
+
+# Celery Configuration
 CELERY_RESULT_BACKEND = 'rpc://'
 
 CELERY_ACCEPT_CONTENT = ['application/json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
-BILLING_SERVICE_URL = "http://127.0.0.1:8002/"
-USER_SERVICE_URL = "http://127.0.0.1:8001/"
+
+# Define the name of your Django project
+CELERY_APP_NAME = 'analitics_service'
+CELERY_TASK_ROUTES = {
+    'analitics.tasks.save_watch_data': {'queue': 'analitics_queue'},
+    'analitics.tasks.add_user_activity': {'queue': 'analitics_queue'},
+    'analitics.tasks.add_review': {'queue': 'analitics_queue'},
+    'analitics.tasks.process_streaming_quality_data': {'queue': 'analitics_queue'},
+    'analitics.tasks.process_user_session_data': {'queue': 'analitics_queue'},
+    'analitics.tasks.save_banner_click': {'queue': 'analitics_queue'},
+    'analitics.tasks.save_banner_impression': {'queue': 'analitics_queue'},
+}
+# Load task modules from all registered Django app configs
+CELERY_IMPORTS = (
+    'analitics.tasks',  # Replace 'your_app' with the name of your Django app
+)
+
+BILLING_SERVICE_URL = "https://gateway.pandatv.uz/billingservice"
+USER_SERVICE_URL = "https://gateway.pandatv.uz/userservice/"
+CELERY_BROKER_CONNECTION_RETRY = True 
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/4.2/howto/deployment/checklist/
@@ -34,8 +58,34 @@ SECRET_KEY = 'django-insecure-urzpdf$pm991$e@q((vmw-=uq1yqvg6#u@gs5$4u%kkoww@pap
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = ['gateway.pandatv.uz']
+CORS_ALLOW_ALL_ORIGINS = True
+# Trust these origins for CSRF
+CSRF_TRUSTED_ORIGINS = [
+    'https://panda-production.netlify.app',
+    'https://gateway.pandatv.uz',
+    'https://pandatv.uz'
+]
 
+# Allow all origins for CORS
+
+# These settings will be ignored if CORS_ALLOW_ALL_ORIGINS is True
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:8080",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://panda-production.netlify.app",
+    'https://pandatv.uz'
+]
+CORS_ORIGIN_WHITELIST = [
+    "http://localhost:8080",
+    "http://localhost:5173",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "https://panda-production.netlify.app",
+    'https://pandatv.uz'
+]
 
 # Application definition
 
@@ -47,7 +97,9 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
-    'analitics'
+    'rest_framework.authtoken',
+    'analitics',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
@@ -55,10 +107,20 @@ MIDDLEWARE = [
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+CORS_ALLOW_ALL_ORIGINS = True
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
+    ],
+}
+
 
 ROOT_URLCONF = 'analitics_service.urls'
 
@@ -84,14 +146,21 @@ WSGI_APPLICATION = 'analitics_service.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/4.2/ref/settings/#databases
 
+
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        # Use 'postgresql' as database engine
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'analitics_service',  # Use the name you've given to your PostgreSQL database
+        'USER': 'pandatv',  # Use your PostgreSQL username here
+        'PASSWORD': 'Pandatv_2023',  # Use your PostgreSQL password here
+        'HOST': 'localhost',  # Set to the address where your PostgreSQL is hosted
+        'PORT': '',  # Leave as an empty string to use the default port
     }
 }
 
 REST_FRAMEWORK = {
+    # ... other settings ...
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 10
 }
@@ -129,8 +198,10 @@ USE_TZ = True
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/4.2/howto/static-files/
-
-STATIC_URL = 'static/'
+STATIC_URL = '/analitics/static/'
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/4.2/ref/settings/#default-auto-field
